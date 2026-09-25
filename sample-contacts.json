@@ -1,0 +1,60 @@
+{
+  "appVersion": "1.0",
+  "exportedAt": "2026-09-26T00:00:00.000Z",
+  "contacts": [
+    {
+      "id": "phone-7722013548",
+      "company": "Bright Precision Machining Works Pvt Ltd",
+      "person": "Rahul Shah",
+      "phone": "7722013548",
+      "area": "Hadapsar",
+      "role": "Quality / Operations",
+      "source": "September List",
+      "status": "NEW",
+      "notes": "",
+      "callbackDate": "",
+      "callbackTime": "",
+      "createdAt": "2026-09-26T00:00:00.000Z",
+      "updatedAt": "2026-09-26T00:00:00.000Z",
+      "lastCalledAt": "",
+      "callAttempts": 0,
+      "history": []
+    },
+    {
+      "id": "phone-9876543210",
+      "company": "East Sun Electronics Pvt Ltd",
+      "person": "",
+      "phone": "9876543210",
+      "area": "Kharadi",
+      "role": "Electronics / Technical Support",
+      "source": "September List",
+      "status": "NEW",
+      "notes": "",
+      "callbackDate": "",
+      "callbackTime": "",
+      "createdAt": "2026-09-26T00:00:00.000Z",
+      "updatedAt": "2026-09-26T00:00:00.000Z",
+      "lastCalledAt": "",
+      "callAttempts": 0,
+      "history": []
+    },
+    {
+      "id": "phone-8484849617",
+      "company": "Revine Technologies",
+      "person": "Priya Mehta",
+      "phone": "8484849617",
+      "area": "Kharadi",
+      "role": "IT / Software",
+      "source": "September List",
+      "status": "NEW",
+      "notes": "",
+      "callbackDate": "",
+      "callbackTime": "",
+      "createdAt": "2026-09-26T00:00:00.000Z",
+      "updatedAt": "2026-09-26T00:00:00.000Z",
+      "lastCalledAt": "",
+      "callAttempts": 0,
+      "history": []
+    }
+  ]
+}
