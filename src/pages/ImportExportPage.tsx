@@ -125,7 +125,6 @@ export function ImportExportPage() {
       {/* ── Cloud Sync ──────────────────────────────────────── */}
       <SupabaseSyncPanel
         contacts={state.contacts}
-        onImport={setContacts}
         onToast={showToast}
       />
 

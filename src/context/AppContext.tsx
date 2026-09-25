@@ -5,7 +5,9 @@ import {
   saveToStorage,
   buildCallingQueue,
   isCompleted,
+  doImport,
 } from '../services/dataStore';
+import { pullContacts, pushContacts } from '../services/supabaseSync';
 
 interface AppState {
   contacts: Contact[];
@@ -13,6 +15,7 @@ interface AppState {
   callerQueue: Contact[];
   callerIndex: number;
   lastSaved: string;
+  syncing: boolean;  // true while auto-loading from cloud on startup
 }
 
 type Action =
@@ -22,7 +25,8 @@ type Action =
   | { type: 'START_CALLING' }
   | { type: 'NEXT_CALLER' }
   | { type: 'SKIP_CALLER' }
-  | { type: 'SET_CALLER_INDEX'; index: number };
+  | { type: 'SET_CALLER_INDEX'; index: number }
+  | { type: 'SET_SYNCING'; syncing: boolean };
 
 function buildQueue(contacts: Contact[]): Contact[] {
   return buildCallingQueue(contacts);
@@ -69,7 +73,6 @@ function reducer(state: AppState, action: Action): AppState {
     }
 
     case 'SKIP_CALLER': {
-      // Move current to end of queue
       const queue = [...state.callerQueue];
       const [skipped] = queue.splice(state.callerIndex, 1);
       queue.push(skipped);
@@ -78,6 +81,9 @@ function reducer(state: AppState, action: Action): AppState {
 
     case 'SET_CALLER_INDEX':
       return { ...state, callerIndex: action.index };
+
+    case 'SET_SYNCING':
+      return { ...state, syncing: action.syncing };
 
     default:
       return state;
@@ -97,6 +103,7 @@ interface AppContextValue {
   remainingCount: number;
   completedCount: number;
   totalPending: number;
+  pushToCloud: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -108,14 +115,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     callerQueue: [],
     callerIndex: 0,
     lastSaved: '',
+    syncing: true,
   });
 
-  // Load from storage on mount
+  // ── On mount: load local first, then auto-sync from Supabase ──
   useEffect(() => {
-    const saved = loadFromStorage();
-    if (saved.length > 0) {
-      dispatch({ type: 'SET_CONTACTS', contacts: saved });
+    async function init() {
+      // 1. Load from localStorage immediately (instant)
+      const local = loadFromStorage();
+      if (local.length > 0) {
+        dispatch({ type: 'SET_CONTACTS', contacts: local });
+      }
+
+      // 2. Fetch from Supabase and merge (may take 1-2 seconds)
+      try {
+        const { contacts: cloud } = await pullContacts();
+        if (cloud.length > 0) {
+          // Merge cloud into local — cloud wins for newer records, local wins for calling progress
+          const merged = doImport(local, cloud);
+          dispatch({ type: 'SET_CONTACTS', contacts: merged.contacts });
+        }
+      } catch {
+        // Supabase unavailable or no data yet — use local only, silently ignore
+      } finally {
+        dispatch({ type: 'SET_SYNCING', syncing: false });
+      }
     }
+    init();
   }, []);
 
   const setContacts = useCallback((contacts: Contact[]) => {
@@ -146,6 +172,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: 'SET_CALLER_INDEX', index });
   }, []);
 
+  // Push current contacts to Supabase (called from SupabaseSyncPanel)
+  const pushToCloud = useCallback(async () => {
+    await pushContacts(state.contacts);
+  }, [state.contacts]);
+
   const currentCallerContact = state.callerQueue[state.callerIndex] ?? null;
   const remainingCount = Math.max(0, state.callerQueue.length - state.callerIndex);
   const completedCount = state.contacts.filter((c) => isCompleted(c.status)).length;
@@ -166,6 +197,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         remainingCount,
         completedCount,
         totalPending,
+        pushToCloud,
       }}
     >
       {children}

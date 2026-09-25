@@ -11,6 +11,7 @@ export function HomePage() {
   const hasContacts = state.contacts.length > 0;
   const pendingCount = state.callerQueue.length;
 
+
   function handleJSONImport(file: File) {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -47,6 +48,22 @@ export function HomePage() {
       <div className="home-title">📞 Calling Task Manager</div>
       <div className="home-subtitle">Fast. Simple. No login. No database.</div>
 
+      {/* Cloud sync loading indicator */}
+      {state.syncing && (
+        <div style={{
+          background: 'linear-gradient(135deg, #059669, #047857)',
+          color: 'white', borderRadius: '12px',
+          padding: '0.85rem 1.25rem',
+          marginBottom: '1.25rem',
+          display: 'flex', alignItems: 'center', gap: '0.75rem',
+          fontSize: '0.9rem', fontWeight: 600,
+          animation: 'pulse 1.5s ease-in-out infinite',
+        }}>
+          <span style={{ fontSize: '1.2rem' }}>☁️</span>
+          Loading contacts from cloud…
+        </div>
+      )}
+
       {hasContacts && (
         <div className="home-info" style={{ marginBottom: '1.5rem' }}>
           <p>📊 <strong>{state.contacts.length}</strong> contacts loaded</p>
@@ -54,6 +71,7 @@ export function HomePage() {
           {state.lastSaved && <p style={{ color: 'var(--gray-400)', fontSize: '0.85rem' }}>Last saved: {state.lastSaved}</p>}
         </div>
       )}
+
 
       <div className="home-actions">
         <button
