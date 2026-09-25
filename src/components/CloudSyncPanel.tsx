@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react';
 import type { Contact } from '../types';
 import {
-  saveToken, loadToken, saveGistId, loadGistId, clearSyncSettings,
+  saveToken, loadToken,
+  saveGistId, loadGistId,
+  saveGithubUser, loadGithubUser,
+  clearSyncSettings,
   createGist, updateGist, fetchGist, verifyToken,
 } from '../services/syncService';
 import { doImport } from '../services/dataStore';
@@ -15,16 +18,12 @@ interface CloudSyncPanelProps {
 type SyncStatus = 'idle' | 'loading' | 'success' | 'error';
 
 export function CloudSyncPanel({ contacts, onImport, onToast }: CloudSyncPanelProps) {
-  // Persisted settings
   const [token, setToken] = useState('');
   const [gistId, setGistId] = useState('');
   const [githubUser, setGithubUser] = useState('');
   const [showToken, setShowToken] = useState(false);
-
-  // Pull code (for any device)
   const [pullCode, setPullCode] = useState('');
 
-  // UI state
   const [pushStatus, setPushStatus] = useState<SyncStatus>('idle');
   const [pullStatus, setPullStatus] = useState<SyncStatus>('idle');
   const [connectStatus, setConnectStatus] = useState<SyncStatus>('idle');
@@ -32,15 +31,24 @@ export function CloudSyncPanel({ contacts, onImport, onToast }: CloudSyncPanelPr
   const [pullMsg, setPullMsg] = useState('');
   const [connectMsg, setConnectMsg] = useState('');
 
-  // Load saved settings on mount
+  // ── Restore everything from localStorage on mount ─────────────
   useEffect(() => {
     const savedToken = loadToken();
     const savedGistId = loadGistId();
+    const savedUser = loadGithubUser();
+
     if (savedToken) setToken(savedToken);
     if (savedGistId) setGistId(savedGistId);
+    if (savedUser) {
+      setGithubUser(savedUser);
+      setConnectStatus('success');
+      setConnectMsg(`✅ Connected as @${savedUser}`);
+    }
   }, []);
 
-  // ── Connect / verify token ────────────────────────────────────
+  const isConnected = connectStatus === 'success' && !!githubUser;
+
+  // ── Verify token ──────────────────────────────────────────────
   async function handleConnect() {
     if (!token.trim()) {
       setConnectMsg('Please enter your GitHub token.');
@@ -48,11 +56,12 @@ export function CloudSyncPanel({ contacts, onImport, onToast }: CloudSyncPanelPr
       return;
     }
     setConnectStatus('loading');
-    setConnectMsg('Verifying token…');
+    setConnectMsg('Verifying…');
     try {
       const user = await verifyToken(token.trim());
       setGithubUser(user);
       saveToken(token.trim());
+      saveGithubUser(user);
       setConnectStatus('success');
       setConnectMsg(`✅ Connected as @${user}`);
     } catch (e: unknown) {
@@ -79,16 +88,14 @@ export function CloudSyncPanel({ contacts, onImport, onToast }: CloudSyncPanelPr
     try {
       let id = gistId;
       if (!id) {
-        // Create new Gist
         id = await createGist(token, contacts);
         setGistId(id);
         saveGistId(id);
       } else {
-        // Update existing
         await updateGist(token, id, contacts);
       }
       setPushStatus('success');
-      setPushMsg(`✅ ${contacts.length} contacts uploaded! Sync Code: ${id}`);
+      setPushMsg(`✅ ${contacts.length} contacts synced to cloud!`);
       onToast('Contacts uploaded to cloud ✅');
     } catch (e: unknown) {
       setPushStatus('error');
@@ -111,7 +118,7 @@ export function CloudSyncPanel({ contacts, onImport, onToast }: CloudSyncPanelPr
       const result = doImport(contacts, incoming);
       onImport(result.contacts);
       setPullStatus('success');
-      setPullMsg(`✅ Loaded ${result.contacts.length} contacts (${result.added} new, ${result.duplicates} merged)`);
+      setPullMsg(`✅ ${result.contacts.length} contacts loaded (${result.added} new, ${result.duplicates} merged)`);
       if (!gistId) { setGistId(code); saveGistId(code); }
       onToast(`Contacts loaded from cloud ✅`);
     } catch (e: unknown) {
@@ -121,21 +128,13 @@ export function CloudSyncPanel({ contacts, onImport, onToast }: CloudSyncPanelPr
   }
 
   function handleDisconnect() {
+    if (!confirm('Disconnect cloud sync? Your local contacts will NOT be deleted.')) return;
     clearSyncSettings();
-    setToken('');
-    setGistId('');
-    setGithubUser('');
-    setPullCode('');
-    setPushStatus('idle');
-    setPullStatus('idle');
-    setConnectStatus('idle');
-    setPushMsg('');
-    setPullMsg('');
-    setConnectMsg('');
+    setToken(''); setGistId(''); setGithubUser(''); setPullCode('');
+    setPushStatus('idle'); setPullStatus('idle'); setConnectStatus('idle');
+    setPushMsg(''); setPullMsg(''); setConnectMsg('');
     onToast('Cloud sync disconnected');
   }
-
-  const isConnected = connectStatus === 'success' || (!!token && !!githubUser);
 
   return (
     <div style={{
@@ -153,48 +152,50 @@ export function CloudSyncPanel({ contacts, onImport, onToast }: CloudSyncPanelPr
         display: 'flex',
         alignItems: 'center',
         gap: '0.75rem',
+        flexWrap: 'wrap',
       }}>
         <span style={{ fontSize: '1.5rem' }}>☁️</span>
-        <div>
+        <div style={{ flex: 1 }}>
           <div style={{ color: 'white', fontWeight: 800, fontSize: '1rem' }}>Cloud Sync</div>
-          <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.8rem' }}>
-            Upload once — access on any device. Powered by GitHub Gist (free).
+          <div style={{ color: 'rgba(255,255,255,0.8)', fontSize: '0.8rem' }}>
+            Upload once — open on any device instantly. Powered by GitHub Gist (free).
           </div>
         </div>
-        {isConnected && (
+        {isConnected ? (
           <span style={{
-            marginLeft: 'auto',
-            background: 'rgba(255,255,255,0.2)',
-            color: 'white',
-            padding: '0.25rem 0.75rem',
-            borderRadius: '999px',
-            fontSize: '0.75rem',
-            fontWeight: 700,
+            background: 'rgba(255,255,255,0.2)', color: 'white',
+            padding: '0.3rem 0.9rem', borderRadius: '999px',
+            fontSize: '0.8rem', fontWeight: 700,
           }}>
-            🟢 Connected {githubUser ? `@${githubUser}` : ''}
+            🟢 @{githubUser}
+          </span>
+        ) : (
+          <span style={{
+            background: 'rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.8)',
+            padding: '0.3rem 0.9rem', borderRadius: '999px',
+            fontSize: '0.8rem', fontWeight: 600,
+          }}>
+            ⚪ Not connected
           </span>
         )}
       </div>
 
       <div style={{ padding: '1.5rem' }}>
 
-        {/* ── SECTION 1: Load from cloud (anyone) ─────────────── */}
+        {/* ── PULL (any device — shown first, most common action) ── */}
         <div style={{ marginBottom: '1.5rem' }}>
-          <div style={{
-            fontWeight: 700, fontSize: '0.95rem', color: 'var(--gray-800)',
-            marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem',
-          }}>
+          <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--gray-800)', marginBottom: '0.35rem' }}>
             📲 Load Contacts on This Device
           </div>
-          <div style={{ fontSize: '0.85rem', color: 'var(--gray-500)', marginBottom: '0.75rem' }}>
-            Enter the Sync Code shared by the owner to instantly load all contacts.
+          <div style={{ fontSize: '0.83rem', color: 'var(--gray-500)', marginBottom: '0.75rem' }}>
+            Paste the Sync Code from the owner to instantly load all contacts on this device.
           </div>
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
             <input
               className="form-input"
-              style={{ flex: 1, minWidth: '200px', fontFamily: 'monospace', fontSize: '0.9rem' }}
-              placeholder="Paste Sync Code here…"
-              value={pullCode || gistId}
+              style={{ flex: 1, minWidth: '180px', fontFamily: 'monospace', fontSize: '0.875rem' }}
+              placeholder={gistId ? `Current: ${gistId.slice(0, 16)}…` : 'Paste Sync Code here…'}
+              value={pullCode}
               onChange={(e) => setPullCode(e.target.value)}
             />
             <button
@@ -214,78 +215,97 @@ export function CloudSyncPanel({ contacts, onImport, onToast }: CloudSyncPanelPr
           )}
         </div>
 
-        <div style={{ borderTop: '1px solid var(--gray-200)', margin: '1.25rem 0' }} />
+        <div style={{ borderTop: '1px solid var(--gray-200)', margin: '1rem 0' }} />
 
-        {/* ── SECTION 2: Owner upload ─────────────────────────── */}
+        {/* ── PUSH (owner only) ─────────────────────────────────── */}
         <div>
-          <div style={{
-            fontWeight: 700, fontSize: '0.95rem', color: 'var(--gray-800)',
-            marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem',
-          }}>
-            🔑 Owner: Upload Contacts to Cloud
-          </div>
-          <div style={{ fontSize: '0.85rem', color: 'var(--gray-500)', marginBottom: '0.75rem' }}>
-            Paste your GitHub token (needs <code style={{ background: 'var(--gray-100)', padding: '0 4px', borderRadius: 4 }}>gist</code> scope).
-            Token is saved only in this browser.{' '}
-            <a
-              href="https://github.com/settings/tokens/new?scopes=gist&description=CallingTaskManager"
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ color: 'var(--primary)', fontWeight: 600 }}
-            >
-              Create token ↗
-            </a>
+          <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--gray-800)', marginBottom: '0.35rem' }}>
+            🔑 Owner: Upload to Cloud
           </div>
 
-          {/* Token row */}
-          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
-            <div style={{ position: 'relative', flex: 1, minWidth: '220px' }}>
-              <input
-                className="form-input"
-                type={showToken ? 'text' : 'password'}
-                placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
-                value={token}
-                onChange={(e) => { setToken(e.target.value); setConnectStatus('idle'); setConnectMsg(''); setGithubUser(''); }}
-                style={{ fontFamily: 'monospace', fontSize: '0.85rem', paddingRight: '2.5rem' }}
-              />
+          {isConnected ? (
+            /* Already connected — just show the upload button */
+            <>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: '0.5rem',
+                marginBottom: '0.75rem', fontSize: '0.85rem', color: 'var(--success)',
+              }}>
+                ✅ Token saved — no need to paste it again.
+                <button
+                  className="btn btn-ghost btn-sm"
+                  style={{ color: 'var(--gray-400)', fontSize: '0.75rem' }}
+                  onClick={() => { setConnectStatus('idle'); setConnectMsg(''); setGithubUser(''); }}
+                >
+                  Change token
+                </button>
+              </div>
+
               <button
-                onClick={() => setShowToken(!showToken)}
-                style={{
-                  position: 'absolute', right: '0.5rem', top: '50%', transform: 'translateY(-50%)',
-                  background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', color: 'var(--gray-400)',
-                }}
-              >{showToken ? '🙈' : '👁'}</button>
-            </div>
-            <button
-              className={`btn ${isConnected ? 'btn-success' : 'btn-outline'}`}
-              onClick={handleConnect}
-              disabled={connectStatus === 'loading'}
-              style={{ whiteSpace: 'nowrap' }}
-            >
-              {connectStatus === 'loading' ? '⏳…' : isConnected ? '✅ Connected' : 'Verify Token'}
-            </button>
-          </div>
+                className="btn btn-primary btn-block"
+                onClick={handlePush}
+                disabled={pushStatus === 'loading' || contacts.length === 0}
+                style={{ marginBottom: '0.75rem' }}
+              >
+                {pushStatus === 'loading'
+                  ? '⏳ Uploading…'
+                  : gistId
+                    ? `☁️ Sync ${contacts.length} Contacts to Cloud`
+                    : `☁️ Upload ${contacts.length} Contacts to Cloud`}
+              </button>
+            </>
+          ) : (
+            /* Not connected — show token input */
+            <>
+              <div style={{ fontSize: '0.83rem', color: 'var(--gray-500)', marginBottom: '0.75rem' }}>
+                Paste your GitHub token (
+                <a
+                  href="https://github.com/settings/tokens/new?scopes=gist&description=CallingTaskManager"
+                  target="_blank" rel="noopener noreferrer"
+                  style={{ color: 'var(--primary)', fontWeight: 600 }}
+                >
+                  create one here ↗
+                </a>
+                , needs <code style={{ background: 'var(--gray-100)', padding: '0 4px', borderRadius: 4 }}>gist</code> scope).
+                It will be <strong>remembered</strong> — you only paste it once.
+              </div>
 
-          {connectMsg && (
-            <div className={`alert ${connectStatus === 'error' ? 'alert-danger' : 'alert-success'}`}
-              style={{ marginBottom: '0.75rem' }}>
-              {connectMsg}
-            </div>
+              <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+                <div style={{ position: 'relative', flex: 1, minWidth: '200px' }}>
+                  <input
+                    className="form-input"
+                    type={showToken ? 'text' : 'password'}
+                    placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+                    value={token}
+                    onChange={(e) => setToken(e.target.value)}
+                    style={{ fontFamily: 'monospace', fontSize: '0.85rem', paddingRight: '2.5rem' }}
+                    onKeyDown={(e) => e.key === 'Enter' && handleConnect()}
+                  />
+                  <button
+                    onClick={() => setShowToken(!showToken)}
+                    style={{
+                      position: 'absolute', right: '0.5rem', top: '50%', transform: 'translateY(-50%)',
+                      background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', color: 'var(--gray-400)',
+                    }}
+                  >{showToken ? '🙈' : '👁'}</button>
+                </div>
+                <button
+                  className="btn btn-outline"
+                  onClick={handleConnect}
+                  disabled={connectStatus === 'loading'}
+                  style={{ whiteSpace: 'nowrap' }}
+                >
+                  {connectStatus === 'loading' ? '⏳…' : 'Connect'}
+                </button>
+              </div>
+
+              {connectMsg && (
+                <div className={`alert ${connectStatus === 'error' ? 'alert-danger' : 'alert-success'}`}
+                  style={{ marginBottom: '0.75rem' }}>
+                  {connectMsg}
+                </div>
+              )}
+            </>
           )}
-
-          {/* Upload button */}
-          <button
-            className="btn btn-primary btn-block"
-            onClick={handlePush}
-            disabled={pushStatus === 'loading' || contacts.length === 0}
-            style={{ marginBottom: '0.75rem' }}
-          >
-            {pushStatus === 'loading'
-              ? '⏳ Uploading…'
-              : gistId
-                ? `☁️ Sync ${contacts.length} Contacts to Cloud`
-                : `☁️ Upload ${contacts.length} Contacts to Cloud`}
-          </button>
 
           {pushMsg && (
             <div className={`alert ${pushStatus === 'error' ? 'alert-danger' : 'alert-success'}`}
@@ -294,7 +314,7 @@ export function CloudSyncPanel({ contacts, onImport, onToast }: CloudSyncPanelPr
             </div>
           )}
 
-          {/* Show sync code if we have a gist */}
+          {/* Sync Code display */}
           {gistId && (
             <div style={{
               background: 'var(--primary-light)',
@@ -307,30 +327,22 @@ export function CloudSyncPanel({ contacts, onImport, onToast }: CloudSyncPanelPr
                 🔗 Your Sync Code
               </div>
               <div style={{
-                fontFamily: 'monospace',
-                fontSize: '0.85rem',
-                background: 'white',
-                padding: '0.5rem 0.75rem',
-                borderRadius: '6px',
-                border: '1px solid var(--gray-200)',
-                wordBreak: 'break-all',
-                marginBottom: '0.5rem',
+                fontFamily: 'monospace', fontSize: '0.82rem',
+                background: 'white', padding: '0.5rem 0.75rem',
+                borderRadius: '6px', border: '1px solid var(--gray-200)',
+                wordBreak: 'break-all', marginBottom: '0.5rem', userSelect: 'all',
               }}>
                 {gistId}
               </div>
               <div style={{ fontSize: '0.8rem', color: 'var(--gray-600)' }}>
-                📱 Share this code with any device. On the phone, paste it in the <strong>"Load Contacts"</strong> box above and tap Load.
+                📱 Share this code with any device. On the other device, paste it in <strong>"Load Contacts"</strong> above and tap Load.
               </div>
             </div>
           )}
 
           {/* Disconnect */}
           {(token || gistId) && (
-            <button
-              className="btn btn-ghost btn-sm"
-              onClick={handleDisconnect}
-              style={{ color: 'var(--danger)' }}
-            >
+            <button className="btn btn-ghost btn-sm" onClick={handleDisconnect} style={{ color: 'var(--danger)' }}>
               🗑 Disconnect Cloud Sync
             </button>
           )}

@@ -4,6 +4,7 @@ const GIST_FILENAME = 'calling-contacts.json';
 const STORAGE_KEYS = {
   TOKEN: 'ctm_github_token',
   GIST_ID: 'ctm_gist_id',
+  GITHUB_USER: 'ctm_github_user',
 };
 
 // ── Persist token/gist locally ─────────────────────────────────
@@ -24,9 +25,18 @@ export function loadGistId(): string {
   return localStorage.getItem(STORAGE_KEYS.GIST_ID) || '';
 }
 
+export function saveGithubUser(user: string) {
+  localStorage.setItem(STORAGE_KEYS.GITHUB_USER, user);
+}
+
+export function loadGithubUser(): string {
+  return localStorage.getItem(STORAGE_KEYS.GITHUB_USER) || '';
+}
+
 export function clearSyncSettings() {
   localStorage.removeItem(STORAGE_KEYS.TOKEN);
   localStorage.removeItem(STORAGE_KEYS.GIST_ID);
+  localStorage.removeItem(STORAGE_KEYS.GITHUB_USER);
 }
 
 // ── GitHub Gist API ────────────────────────────────────────────
