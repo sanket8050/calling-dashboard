@@ -6,7 +6,25 @@ export function normalizePhone(raw: string): string {
   if (!raw) return '';
   let num = raw.toString().trim();
 
-  // Remove spaces, hyphens, dots, parens
+  // Handle Excel scientific notation: e.g. 9.87654E+09
+  if (/^\d+\.?\d*e[+-]?\d+$/i.test(num)) {
+    const parsed = Number(num);
+    if (!isNaN(parsed)) num = Math.round(parsed).toString();
+  }
+
+  // Remove trailing .0 or .00 from Excel exports (e.g. 9876543210.0 -> 9876543210)
+  num = num.replace(/\.0+$/, '');
+
+  // Remove quotes
+  num = num.replace(/^['"]+|['"]+$/g, '');
+
+  // If multiple numbers separated by slash, comma, or semicolon, take first valid part
+  if (/[/,;]/.test(num)) {
+    const parts = num.split(/[/,;]/).map(p => p.trim()).filter(Boolean);
+    if (parts.length > 0) num = parts[0];
+  }
+
+  // Remove spaces, hyphens, dots, parens, slashes
   num = num.replace(/[\s\-.()/]/g, '');
 
   // Remove leading +

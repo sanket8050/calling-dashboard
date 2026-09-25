@@ -11,6 +11,7 @@ import {
 import type { CSVPreview, Contact } from '../types';
 import { useToast, Toast } from '../components/Toast';
 import { SupabaseSyncPanel } from '../components/SupabaseSyncPanel';
+import { pushContacts } from '../services/supabaseSync';
 
 type ImportStep = 'idle' | 'preview' | 'importing' | 'result' | 'merge-confirm';
 
@@ -56,10 +57,16 @@ export function ImportExportPage() {
     reader.readAsText(file);
   }
 
-  function confirmCSVImport() {
+  async function confirmCSVImport() {
     if (!csvPreview) return;
     const r = doImport(state.contacts, csvPreview.contacts);
     setContacts(r.contacts);
+    try {
+      await pushContacts(r.contacts);
+      showToast(`Imported & synced ${r.added} contacts to cloud ✅`);
+    } catch {
+      showToast(`Imported ${r.added} contacts locally ✅`);
+    }
     setResult({ added: r.added, duplicates: r.duplicates, invalid: csvPreview.invalidCount, invalidReasons: csvPreview.invalidReasons });
     setStep('result');
   }
@@ -86,14 +93,23 @@ export function ImportExportPage() {
     reader.readAsText(file);
   }
 
-  function applyJSONImport(incoming: Contact[], mode: 'merge' | 'replace' = 'merge') {
+  async function applyJSONImport(incoming: Contact[], mode: 'merge' | 'replace' = 'merge') {
+    let finalContacts: Contact[] = [];
     if (mode === 'replace') {
+      finalContacts = incoming;
       setContacts(incoming);
       setResult({ added: incoming.length, duplicates: 0, invalid: 0, invalidReasons: [] });
     } else {
       const r = doImport(state.contacts, incoming);
+      finalContacts = r.contacts;
       setContacts(r.contacts);
       setResult({ added: r.added, duplicates: r.duplicates, invalid: 0, invalidReasons: [] });
+    }
+    try {
+      await pushContacts(finalContacts);
+      showToast('Synced to cloud ✅');
+    } catch {
+      // Local storage already saved
     }
     setPendingMerge(null);
     setStep('result');
@@ -192,6 +208,25 @@ export function ImportExportPage() {
                   <div className="stat-label">Duplicates</div>
                 </div>
               </div>
+              {/* Sample extracted contacts preview */}
+              {csvPreview.contacts.length > 0 && (
+                <div style={{ marginBottom: '1rem', background: 'var(--gray-50)', padding: '0.75rem', borderRadius: '10px', border: '1px solid var(--gray-200)' }}>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--gray-600)', textTransform: 'uppercase', marginBottom: '0.4rem' }}>
+                    Preview of extracted records:
+                  </div>
+                  {csvPreview.contacts.slice(0, 3).map((c, i) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem', padding: '0.3rem 0', borderBottom: i < 2 ? '1px solid var(--gray-200)' : 'none' }}>
+                      <span style={{ fontWeight: 600, color: 'var(--gray-800)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '180px' }}>
+                        {c.company}
+                      </span>
+                      <span style={{ color: c.phone ? 'var(--primary)' : 'var(--danger)', fontWeight: 700, fontFamily: 'monospace' }}>
+                        {c.phone ? `📱 ${c.phone}` : '⚠️ No phone'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <div className="form-group">
                 <label className="form-label">Source / List Name (optional)</label>
                 <input

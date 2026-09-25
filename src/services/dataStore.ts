@@ -1,5 +1,5 @@
 import type { Contact, MasterData, ContactStatus, ImportResult, CSVPreview } from '../types';
-import { generateId, escapeCSV, downloadFile, exportDateStr } from '../utils';
+import { generateId, escapeCSV, downloadFile, exportDateStr, normalizePhone } from '../utils';
 
 const STORAGE_KEY = 'calling_task_manager_v1';
 
@@ -116,22 +116,89 @@ function mergeHistory(a: Contact['history'], b: Contact['history']): Contact['hi
 
 // ─── CSV Import ───────────────────────────────────────────────────────────────
 
-const COL_MAPS: Record<string, string[]> = {
-  company: ['company', 'company_name', 'company name', 'organization', 'Organisation', 'org'],
-  person: ['name', 'person', 'contact', 'contact name', 'contact_name'],
-  phone: ['phone', 'mobile', 'number', 'phone_number', 'phone number', 'mobile_number', 'mobile number', 'tel'],
-  area: ['area', 'location', 'city', 'district', 'zone'],
-  role: ['role', 'potential_fit', 'potential fit', 'job_role', 'job role', 'designation', 'department'],
-  source: ['source', 'list', 'list_name', 'list name'],
-};
+const PHONE_ALIASES = [
+  'phone', 'phoneno', 'phonenumber', 'phone1', 'phone2', 'primaryphone', 'contactphone',
+  'mobile', 'mobileno', 'mobilenumber', 'mobile1', 'mobile2', 'primarymobile',
+  'contactno', 'contactnumber', 'contactnum', 'contact1', 'contact2',
+  'mob', 'ph', 'phno', 'phnum', 'cell', 'cellno', 'cellphone',
+  'tel', 'telno', 'telephone', 'telephoneno',
+  'whatsapp', 'whatsappno', 'whatsappnumber',
+  'callingno', 'callingnumber', 'callno', 'calling',
+  'number', 'numbers'
+];
 
-function detectColumn(headers: string[], field: string): number {
-  const aliases = COL_MAPS[field] || [field];
+const COMPANY_ALIASES = [
+  'company', 'companyname', 'organization', 'organisation', 'org', 'orgname',
+  'firm', 'firmname', 'business', 'businessname', 'client', 'clientname',
+  'shop', 'shopname', 'enterprise', 'account', 'employer', 'agency', 'accountname'
+];
+
+const PERSON_ALIASES = [
+  'person', 'personname', 'contactperson', 'contactname', 'name', 'fullname',
+  'candidate', 'candidatename', 'owner', 'proprietor', 'manager', 'lead', 'clientperson'
+];
+
+const AREA_ALIASES = [
+  'area', 'location', 'city', 'district', 'zone', 'address', 'place', 'region', 'state', 'town'
+];
+
+const ROLE_ALIASES = [
+  'role', 'potentialfit', 'jobrole', 'designation', 'department', 'title', 'position', 'profile', 'category'
+];
+
+const SOURCE_ALIASES = [
+  'source', 'list', 'listname', 'sourcename', 'campaign', 'batch'
+];
+
+function cleanHeaderKey(h: string): string {
+  return (h || '').replace(/^\uFEFF/, '').replace(/['"]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function detectColumnByHeader(headers: string[], aliases: string[]): number {
+  const normHeaders = headers.map(cleanHeaderKey);
+  // 1. Exact alias match
   for (const alias of aliases) {
-    const idx = headers.findIndex((h) => h.trim().toLowerCase() === alias.toLowerCase());
+    const idx = normHeaders.indexOf(alias);
     if (idx >= 0) return idx;
   }
+  // 2. Substring match
+  for (let i = 0; i < normHeaders.length; i++) {
+    const h = normHeaders[i];
+    if (!h) continue;
+    for (const alias of aliases) {
+      if (h.length >= 4 && alias.length >= 4 && (h.includes(alias) || alias.includes(h))) {
+        return i;
+      }
+    }
+  }
   return -1;
+}
+
+function detectPhoneColumnByContent(rows: string[][]): number {
+  if (rows.length === 0) return -1;
+  const sample = rows.slice(0, 30);
+  const maxCols = Math.max(...sample.map(r => r.length));
+  let bestCol = -1;
+  let maxCount = 0;
+
+  for (let c = 0; c < maxCols; c++) {
+    let count = 0;
+    let totalNonEmpty = 0;
+    for (const r of sample) {
+      const val = (r[c] || '').trim();
+      if (!val) continue;
+      totalNonEmpty++;
+      const digits = val.replace(/\D/g, '');
+      if (digits.length >= 8 && digits.length <= 15) {
+        count++;
+      }
+    }
+    if (totalNonEmpty >= 2 && count / totalNonEmpty >= 0.35 && count > maxCount) {
+      maxCount = count;
+      bestCol = c;
+    }
+  }
+  return bestCol;
 }
 
 function parseCSVLine(line: string): string[] {
@@ -159,40 +226,73 @@ function parseCSVLine(line: string): string[] {
 }
 
 export function parseCSV(text: string, sourceName: string = ''): { contacts: Contact[]; invalidRows: { row: number; reason: string }[] } {
-  const lines = text.split(/\r?\n/).filter((l) => l.trim());
+  const cleanText = text.replace(/^\uFEFF/, '');
+  const lines = cleanText.split(/\r?\n/).filter((l) => l.trim());
   if (lines.length < 2) return { contacts: [], invalidRows: [] };
 
-  const headers = parseCSVLine(lines[0]).map((h) => h.trim().toLowerCase());
+  const parsedRows = lines.map(parseCSVLine);
+  const rawHeaders = parsedRows[0];
+  const dataRows = parsedRows.slice(1);
 
-  const colCompany = detectColumn(headers, 'company');
-  const colPerson = detectColumn(headers, 'person');
-  const colPhone = detectColumn(headers, 'phone');
-  const colArea = detectColumn(headers, 'area');
-  const colRole = detectColumn(headers, 'role');
-  const colSource = detectColumn(headers, 'source');
+  let colCompany = detectColumnByHeader(rawHeaders, COMPANY_ALIASES);
+  const colPerson = detectColumnByHeader(rawHeaders, PERSON_ALIASES);
+  let colPhone = detectColumnByHeader(rawHeaders, PHONE_ALIASES);
+  const colArea = detectColumnByHeader(rawHeaders, AREA_ALIASES);
+  const colRole = detectColumnByHeader(rawHeaders, ROLE_ALIASES);
+  const colSource = detectColumnByHeader(rawHeaders, SOURCE_ALIASES);
+
+  // If phone column not found by header, inspect data content!
+  if (colPhone === -1) {
+    colPhone = detectPhoneColumnByContent(dataRows);
+  }
+
+  // If company not found by header, pick first column that is not phone or person
+  if (colCompany === -1) {
+    for (let c = 0; c < rawHeaders.length; c++) {
+      if (c !== colPhone && c !== colPerson && c !== colArea && c !== colRole) {
+        colCompany = c;
+        break;
+      }
+    }
+  }
 
   const contacts: Contact[] = [];
   const invalidRows: { row: number; reason: string }[] = [];
   const now = new Date().toISOString();
 
-  for (let i = 1; i < lines.length; i++) {
-    const cells = parseCSVLine(lines[i]);
+  for (let i = 0; i < dataRows.length; i++) {
+    const cells = dataRows[i];
     const company = colCompany >= 0 ? cells[colCompany]?.trim() || '' : '';
     const person = colPerson >= 0 ? cells[colPerson]?.trim() || '' : '';
-    const phone = colPhone >= 0 ? cells[colPhone]?.trim() || '' : '';
+    let rawPhone = colPhone >= 0 ? cells[colPhone]?.trim() || '' : '';
     const area = colArea >= 0 ? cells[colArea]?.trim() || '' : '';
     const role = colRole >= 0 ? cells[colRole]?.trim() || '' : '';
     const source = colSource >= 0 ? cells[colSource]?.trim() || '' : sourceName;
 
+    // Row-level fallback: scan all cells in this row for any phone-like value if rawPhone is missing
+    if (!rawPhone) {
+      for (let c = 0; c < cells.length; c++) {
+        if (c === colCompany) continue;
+        const val = (cells[c] || '').trim();
+        const digits = val.replace(/\D/g, '');
+        if (digits.length >= 10 && digits.length <= 13) {
+          rawPhone = val;
+          break;
+        }
+      }
+    }
+
+    const phone = normalizePhone(rawPhone) || rawPhone;
+
     if (!phone && !company) {
-      invalidRows.push({ row: i + 1, reason: 'Missing phone and company' });
+      invalidRows.push({ row: i + 2, reason: 'Missing phone and company' });
       continue;
     }
 
     const id = generateId(phone, company, person, area);
     contacts.push({
       id,
-      company,
+      company: company || (person ? `${person}'s Contact` : 'Unnamed Contact'),
       person,
       phone,
       area,

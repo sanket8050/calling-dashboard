@@ -42,7 +42,7 @@ export function App() {
         {state.mode === 'dashboard' && <DashboardPage />}
         {state.mode === 'import' && <ImportExportPage />}
       </main>
-      {state.mode !== 'caller' && <BottomNav />}
+      <BottomNav />
     </div>
   );
 }
