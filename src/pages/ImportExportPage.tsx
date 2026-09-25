@@ -10,7 +10,7 @@ import {
 } from '../services/dataStore';
 import type { CSVPreview, Contact } from '../types';
 import { useToast, Toast } from '../components/Toast';
-import { CloudSyncPanel } from '../components/CloudSyncPanel';
+import { SupabaseSyncPanel } from '../components/SupabaseSyncPanel';
 
 type ImportStep = 'idle' | 'preview' | 'importing' | 'result' | 'merge-confirm';
 
@@ -123,7 +123,7 @@ export function ImportExportPage() {
       <div className="section-title">📥 Import &amp; Export</div>
 
       {/* ── Cloud Sync ──────────────────────────────────────── */}
-      <CloudSyncPanel
+      <SupabaseSyncPanel
         contacts={state.contacts}
         onImport={setContacts}
         onToast={showToast}
