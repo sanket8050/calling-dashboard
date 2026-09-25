@@ -4,35 +4,29 @@ import { CallerPage } from './pages/CallerPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { ImportExportPage } from './pages/ImportExportPage';
 
-function NavBar() {
+function BottomNav() {
   const { state, setMode, startCalling } = useApp();
   const mode = state.mode;
 
+  const tabs = [
+    { key: 'home', label: 'Home', emoji: '🏠', action: () => setMode('home') },
+    { key: 'caller', label: 'Call', emoji: '📞', action: startCalling },
+    { key: 'dashboard', label: 'Dashboard', emoji: '📊', action: () => setMode('dashboard') },
+    { key: 'import', label: 'Import', emoji: '📥', action: () => setMode('import') },
+  ];
+
   return (
-    <nav className="app-nav">
-      <div className="nav-inner">
-        <button className="nav-brand" onClick={() => setMode('home')}>
-          📞 <span className="brand-text">CallManager</span>
+    <nav className="bottom-nav">
+      {tabs.map((tab) => (
+        <button
+          key={tab.key}
+          className={`bottom-tab ${mode === tab.key ? 'active' : ''}`}
+          onClick={tab.action}
+        >
+          <span className="bottom-tab-icon">{tab.emoji}</span>
+          <span className="bottom-tab-label">{tab.label}</span>
         </button>
-        <div className="nav-tabs">
-          <button
-            className={`nav-tab ${mode === 'home' ? 'active' : ''}`}
-            onClick={() => setMode('home')}
-          >🏠 Home</button>
-          <button
-            className={`nav-tab ${mode === 'caller' ? 'active' : ''}`}
-            onClick={startCalling}
-          >📞 Caller</button>
-          <button
-            className={`nav-tab ${mode === 'dashboard' ? 'active' : ''}`}
-            onClick={() => setMode('dashboard')}
-          >📊 Dashboard</button>
-          <button
-            className={`nav-tab ${mode === 'import' ? 'active' : ''}`}
-            onClick={() => setMode('import')}
-          >📥 Import/Export</button>
-        </div>
-      </div>
+      ))}
     </nav>
   );
 }
@@ -42,13 +36,13 @@ export function App() {
 
   return (
     <div className="app-layout">
-      <NavBar />
-      <main>
+      <main className="app-main">
         {state.mode === 'home' && <HomePage />}
         {state.mode === 'caller' && <CallerPage />}
         {state.mode === 'dashboard' && <DashboardPage />}
         {state.mode === 'import' && <ImportExportPage />}
       </main>
+      {state.mode !== 'caller' && <BottomNav />}
     </div>
   );
 }

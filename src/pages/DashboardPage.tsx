@@ -281,53 +281,54 @@ export function DashboardPage() {
             ))}
           </div>
 
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th className="sortable" onClick={() => toggleSort('company')}>Company{sortArrow('company')}</th>
-                  <th>Phone</th>
-                  <th className="sortable" onClick={() => toggleSort('area')}>Area{sortArrow('area')}</th>
-                  <th>Role</th>
-                  <th className="sortable" onClick={() => toggleSort('status')}>Status{sortArrow('status')}</th>
-                  <th className="sortable" onClick={() => toggleSort('callAttempts')}>Attempts{sortArrow('callAttempts')}</th>
-                  <th className="sortable" onClick={() => toggleSort('updatedAt')}>Updated{sortArrow('updatedAt')}</th>
-                  <th>Call</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sorted.length === 0 ? (
-                  <tr><td colSpan={8} style={{ textAlign: 'center', color: 'var(--gray-400)', padding: '2rem' }}>No contacts match your filter</td></tr>
-                ) : sorted.map((c) => (
-                  <tr key={c.id}>
-                    <td onClick={() => setSelectedContact(c)}>
-                      <div style={{ fontWeight: 600 }}>{c.company || '—'}</div>
-                      {c.person && <div style={{ fontSize: '0.8rem', color: 'var(--gray-500)' }}>{c.person}</div>}
-                    </td>
-                    <td onClick={() => setSelectedContact(c)} style={{ color: 'var(--primary)', fontWeight: 600 }}>{c.phone}</td>
-                    <td onClick={() => setSelectedContact(c)}>{c.area || '—'}</td>
-                    <td onClick={() => setSelectedContact(c)} className="truncate" style={{ maxWidth: '150px' }}>{c.role || '—'}</td>
-                    <td onClick={() => setSelectedContact(c)}><StatusBadge status={c.status} /></td>
-                    <td onClick={() => setSelectedContact(c)}>{c.callAttempts || 0}</td>
-                    <td onClick={() => setSelectedContact(c)} style={{ color: 'var(--gray-500)', fontSize: '0.8rem', whiteSpace: 'nowrap' }}>{formatDate(c.updatedAt)}</td>
-                    <td onClick={(e) => e.stopPropagation()}>
-                      {buildTelLink(c.phone) ? (
-                        <a
-                          href={buildTelLink(c.phone)}
-                          className="btn btn-primary btn-sm"
-                          style={{ textDecoration: 'none', whiteSpace: 'nowrap' }}
-                          title={`Call ${c.phone}`}
-                        >
-                          📞 Call
-                        </a>
-                      ) : (
-                        <span style={{ color: 'var(--gray-400)', fontSize: '0.8rem' }}>No #</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.875rem', overflowX: 'auto', alignItems: 'center', scrollbarWidth: 'none' }}>
+            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--gray-500)', textTransform: 'uppercase', flexShrink: 0 }}>Sort:</span>
+            {(['updatedAt', 'company', 'callAttempts', 'area'] as SortField[]).map((f) => (
+              <button
+                key={f}
+                className={`filter-chip ${sortField === f ? 'active' : ''}`}
+                style={{ padding: '0.25rem 0.6rem', fontSize: '0.75rem', minHeight: '32px' }}
+                onClick={() => toggleSort(f)}
+              >
+                {f === 'updatedAt' ? 'Recent' : f === 'callAttempts' ? 'Attempts' : f.charAt(0).toUpperCase() + f.slice(1)}
+                {sortArrow(f)}
+              </button>
+            ))}
+          </div>
+
+          <div className="contact-list-container">
+            {sorted.length === 0 ? (
+              <div className="empty-state" style={{ padding: '2rem 1rem' }}>
+                <p style={{ color: 'var(--gray-400)' }}>No contacts match your filter</p>
+              </div>
+            ) : (
+              sorted.map((c) => (
+                <div key={c.id} className="contact-mobile-card" onClick={() => setSelectedContact(c)}>
+                  <div className="cmc-info">
+                    <div className="cmc-company">{c.company || '—'}</div>
+                    <div className="cmc-phone">📱 {c.phone}</div>
+                    <div className="cmc-sub">
+                      {[c.person, c.area, c.role].filter(Boolean).join(' • ') || 'No extra info'}
+                    </div>
+                  </div>
+                  <div className="cmc-actions" onClick={(e) => e.stopPropagation()}>
+                    <StatusBadge status={c.status} />
+                    {buildTelLink(c.phone) ? (
+                      <a
+                        href={buildTelLink(c.phone)}
+                        className="btn btn-primary btn-sm"
+                        style={{ textDecoration: 'none', padding: '0.4rem 0.75rem', minHeight: '36px', borderRadius: '8px' }}
+                        title={`Call ${c.phone}`}
+                      >
+                        📞 Call
+                      </a>
+                    ) : (
+                      <span style={{ color: 'var(--gray-400)', fontSize: '0.75rem' }}>No #</span>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
           </div>
           <div style={{ marginTop: '0.75rem', fontSize: '0.85rem', color: 'var(--gray-500)' }}>
             Showing {sorted.length} of {contacts.length} contacts · Click any row to view details
