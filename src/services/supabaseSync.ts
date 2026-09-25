@@ -58,3 +58,36 @@ export async function getLastSyncTime(): Promise<string | null> {
   if (error || !data) return null;
   return data.updated_at as string;
 }
+
+/**
+ * Subscribe to realtime database changes for instant live updates.
+ */
+export function subscribeToCloudUpdates(onUpdate: (contacts: Contact[], updatedAt: string) => void): () => void {
+  try {
+    const channel = supabase
+      .channel('calling_contacts_realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: TABLE,
+          filter: `id=eq.${ROW_ID}`,
+        },
+        (payload) => {
+          const rec = payload.new as { data?: Contact[]; updated_at?: string };
+          if (rec && Array.isArray(rec.data)) {
+            onUpdate(rec.data, rec.updated_at || new Date().toISOString());
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  } catch (err) {
+    console.warn('Realtime subscription fallback to polling', err);
+    return () => {};
+  }
+}

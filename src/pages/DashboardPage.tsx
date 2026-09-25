@@ -23,13 +23,14 @@ function StatCard({ value, label, color }: { value: number; label: string; color
 }
 
 export function DashboardPage() {
-  const { state, updateContact } = useApp();
+  const { state, updateContact, refreshCloud } = useApp();
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<ContactStatus | 'ALL'>('ALL');
   const [sortField, setSortField] = useState<SortField>('updatedAt');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [activeTab, setActiveTab] = useState<'all' | 'hot' | 'callbacks' | 'queue'>('all');
+  const [refreshing, setRefreshing] = useState(false);
 
   const contacts = state.contacts;
 
@@ -119,6 +120,31 @@ export function DashboardPage() {
           onFollowUpToggle={handleFollowUpToggle}
         />
       )}
+
+      {/* Live sync banner */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.875rem', background: 'white', padding: '0.6rem 0.875rem', borderRadius: '10px', border: '1px solid var(--gray-200)', boxShadow: 'var(--shadow)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', color: '#059669', fontWeight: 700 }}>
+          <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', boxShadow: '0 0 6px #10b981' }} />
+          Live Cloud Sync
+          {state.lastCloudSyncTime && (
+            <span style={{ color: 'var(--gray-400)', fontWeight: 500, fontSize: '0.75rem' }}>
+              • {state.lastCloudSyncTime}
+            </span>
+          )}
+        </div>
+        <button
+          className="btn btn-outline btn-sm"
+          style={{ padding: '0.25rem 0.625rem', fontSize: '0.75rem', minHeight: '30px', borderRadius: '8px', fontWeight: 600 }}
+          onClick={async () => {
+            setRefreshing(true);
+            await refreshCloud();
+            setTimeout(() => setRefreshing(false), 500);
+          }}
+          disabled={refreshing}
+        >
+          {refreshing ? '⏳ Syncing…' : '🔄 Refresh'}
+        </button>
+      </div>
 
       {/* Stats */}
       <div className="stats-grid">

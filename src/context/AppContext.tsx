@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useReducer, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useReducer, useEffect, useCallback, useRef } from 'react';
 import type { Contact, AppMode } from '../types';
 import {
   loadFromStorage,
@@ -7,7 +7,7 @@ import {
   isCompleted,
   doImport,
 } from '../services/dataStore';
-import { pullContacts, pushContacts } from '../services/supabaseSync';
+import { pullContacts, pushContacts, getLastSyncTime, subscribeToCloudUpdates } from '../services/supabaseSync';
 
 interface AppState {
   contacts: Contact[];
@@ -15,7 +15,8 @@ interface AppState {
   callerQueue: Contact[];
   callerIndex: number;
   lastSaved: string;
-  syncing: boolean;  // true while auto-loading from cloud on startup
+  syncing: boolean;
+  lastCloudSyncTime: string;
 }
 
 type Action =
@@ -26,7 +27,8 @@ type Action =
   | { type: 'NEXT_CALLER' }
   | { type: 'SKIP_CALLER' }
   | { type: 'SET_CALLER_INDEX'; index: number }
-  | { type: 'SET_SYNCING'; syncing: boolean };
+  | { type: 'SET_SYNCING'; syncing: boolean }
+  | { type: 'SET_CLOUD_TIME'; time: string };
 
 function buildQueue(contacts: Contact[]): Contact[] {
   return buildCallingQueue(contacts);
@@ -85,6 +87,9 @@ function reducer(state: AppState, action: Action): AppState {
     case 'SET_SYNCING':
       return { ...state, syncing: action.syncing };
 
+    case 'SET_CLOUD_TIME':
+      return { ...state, lastCloudSyncTime: action.time };
+
     default:
       return state;
   }
@@ -104,6 +109,7 @@ interface AppContextValue {
   completedCount: number;
   totalPending: number;
   pushToCloud: () => Promise<void>;
+  refreshCloud: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -116,33 +122,85 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     callerIndex: 0,
     lastSaved: '',
     syncing: true,
+    lastCloudSyncTime: '',
   });
 
-  // ── On mount: load local first, then auto-sync from Supabase ──
-  useEffect(() => {
-    async function init() {
-      // 1. Load from localStorage immediately (instant)
-      const local = loadFromStorage();
-      if (local.length > 0) {
-        dispatch({ type: 'SET_CONTACTS', contacts: local });
-      }
+  const lastKnownCloudTimeRef = useRef<string>('');
+  const isSyncingRef = useRef<boolean>(false);
 
-      // 2. Fetch from Supabase and merge (may take 1-2 seconds)
+  // Core function to merge incoming cloud contacts into local state
+  const applyCloudUpdate = useCallback((cloudContacts: Contact[], updatedAt: string) => {
+    if (!cloudContacts || cloudContacts.length === 0) return;
+    lastKnownCloudTimeRef.current = updatedAt;
+    const local = loadFromStorage();
+    const merged = doImport(local, cloudContacts);
+    dispatch({ type: 'SET_CONTACTS', contacts: merged.contacts });
+    dispatch({ type: 'SET_CLOUD_TIME', time: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) });
+  }, []);
+
+  // Manual or automatic pull from cloud
+  const refreshCloud = useCallback(async () => {
+    if (isSyncingRef.current) return;
+    isSyncingRef.current = true;
+    try {
+      const { contacts: cloud, updatedAt } = await pullContacts();
+      applyCloudUpdate(cloud, updatedAt);
+    } catch {
+      // Offline or error — ignore silently
+    } finally {
+      isSyncingRef.current = false;
+      dispatch({ type: 'SET_SYNCING', syncing: false });
+    }
+  }, [applyCloudUpdate]);
+
+  // 1. On Mount: load local first, then pull initial cloud data
+  useEffect(() => {
+    const local = loadFromStorage();
+    if (local.length > 0) {
+      dispatch({ type: 'SET_CONTACTS', contacts: local });
+    }
+    refreshCloud();
+  }, [refreshCloud]);
+
+  // 2. Realtime listener: triggers instantly when database is changed
+  useEffect(() => {
+    const unsubscribe = subscribeToCloudUpdates((cloudContacts, updatedAt) => {
+      applyCloudUpdate(cloudContacts, updatedAt);
+    });
+    return unsubscribe;
+  }, [applyCloudUpdate]);
+
+  // 3. Background live polling: checks every 5 seconds for new caller updates
+  useEffect(() => {
+    const checkUpdates = async () => {
+      if (isSyncingRef.current) return;
       try {
-        const { contacts: cloud } = await pullContacts();
-        if (cloud.length > 0) {
-          // Merge cloud into local — cloud wins for newer records, local wins for calling progress
-          const merged = doImport(local, cloud);
-          dispatch({ type: 'SET_CONTACTS', contacts: merged.contacts });
+        const cloudTime = await getLastSyncTime();
+        if (cloudTime && cloudTime !== lastKnownCloudTimeRef.current) {
+          await refreshCloud();
         }
       } catch {
-        // Supabase unavailable or no data yet — use local only, silently ignore
-      } finally {
-        dispatch({ type: 'SET_SYNCING', syncing: false });
+        // Offline / network pause
       }
-    }
-    init();
-  }, []);
+    };
+
+    const interval = setInterval(checkUpdates, 5000);
+
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        checkUpdates();
+      }
+    };
+
+    window.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', checkUpdates);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', checkUpdates);
+    };
+  }, [refreshCloud]);
 
   const setContacts = useCallback((contacts: Contact[]) => {
     dispatch({ type: 'SET_CONTACTS', contacts });
@@ -152,8 +210,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: 'SET_MODE', mode });
   }, []);
 
+  // When a caller tags/updates a contact: save locally AND auto-sync to Supabase immediately!
   const updateContact = useCallback((contact: Contact) => {
     dispatch({ type: 'UPDATE_CONTACT', contact });
+    const local = loadFromStorage();
+    const updated = local.map((c) => (c.id === contact.id ? contact : c));
+    saveToStorage(updated);
+
+    // Auto-push the caller's action to Supabase in background
+    pushContacts(updated)
+      .then(() => {
+        dispatch({ type: 'SET_CLOUD_TIME', time: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) });
+      })
+      .catch((err) => {
+        console.warn('Background cloud update failed:', err);
+      });
   }, []);
 
   const startCalling = useCallback(() => {
@@ -172,9 +243,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: 'SET_CALLER_INDEX', index });
   }, []);
 
-  // Push current contacts to Supabase (called from SupabaseSyncPanel)
   const pushToCloud = useCallback(async () => {
     await pushContacts(state.contacts);
+    dispatch({ type: 'SET_CLOUD_TIME', time: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) });
   }, [state.contacts]);
 
   const currentCallerContact = state.callerQueue[state.callerIndex] ?? null;
@@ -198,6 +269,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         completedCount,
         totalPending,
         pushToCloud,
+        refreshCloud,
       }}
     >
       {children}
